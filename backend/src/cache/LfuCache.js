@@ -1,4 +1,4 @@
-const chalk = require('chalk');
+import chalk from 'chalk';
 
 /**
  * LFU (Least Frequently Used) Cache
@@ -36,12 +36,12 @@ class LfuCache {
 
     get(key) {
         if (!this.values.has(key)) {
-            console.log(chalk.yellow(`[LFU MISS]`) + ` Key: ${chalk.cyan(key)}`);
+            console.log(`${chalk.bgYellow.black(' MISS ')} [LFU] Key: ${chalk.cyan(key)}`);
             return null;
         }
 
         this._updateFreq(key);
-        console.log(chalk.green(`[LFU HIT]`) + ` Key: ${chalk.cyan(key)} (Freq: ${chalk.bold(this.counts.get(key))})`);
+        console.log(`${chalk.bgGreen.black(' HIT ')} [LFU] Key: ${chalk.cyan(key)} (New Freq: ${chalk.bold(this.counts.get(key))})`);
         return this.values.get(key);
     }
 
@@ -51,24 +51,22 @@ class LfuCache {
         if (this.values.has(key)) {
             this.values.set(key, value);
             this._updateFreq(key);
-            console.log(chalk.blue(`[LFU UPDATE]`) + ` Key: ${chalk.cyan(key)} (Freq: ${chalk.bold(this.counts.get(key))})`);
+            console.log(`${chalk.bgBlue.white(' UPDATE ')} [LFU] Key: ${chalk.cyan(key)} (New Freq: ${chalk.bold(this.counts.get(key))})`);
             return;
         }
 
         if (this.values.size >= this.capacity) {
-            // Evict from the list of minimum frequency
             const evictList = this.lists.get(this.minFreq);
-            const keyToEvict = evictList.values().next().value; // Head of Set (oldest)
+            const keyToEvict = evictList.values().next().value;
 
             evictList.delete(keyToEvict);
             this.values.delete(keyToEvict);
             const freq = this.counts.get(keyToEvict);
             this.counts.delete(keyToEvict);
 
-            console.log(chalk.red(`[LFU EVICTION]`) + ` Evicted: ${chalk.cyan(keyToEvict)} (Reason: Lowest Frequency [${chalk.bold(freq)}], oldest)`);
+            console.log(`${chalk.bgRed.white(' EVICT ')} [LFU] Key: ${chalk.cyan(keyToEvict)} (Reason: Freq ${chalk.bold(freq)} was min)`);
         }
 
-        // Add new item
         this.values.set(key, value);
         this.counts.set(key, 1);
         this.minFreq = 1;
@@ -76,8 +74,16 @@ class LfuCache {
             this.lists.set(1, new Set());
         }
         this.lists.get(1).add(key);
-        console.log(chalk.magenta(`[LFU INSERT]`) + ` Key: ${chalk.cyan(key)} cached (Freq: 1).`);
+        console.log(`${chalk.bgMagenta.white(' PUT ')} [LFU] Key: ${chalk.cyan(key)}`);
+    }
+
+    clear() {
+        this.values.clear();
+        this.counts.clear();
+        this.lists.clear();
+        this.minFreq = 0;
+        console.log(chalk.bgRed.white.bold(' CACHE CLEARED ') + ' [LFU]');
     }
 }
 
-module.exports = LfuCache;
+export default LfuCache;

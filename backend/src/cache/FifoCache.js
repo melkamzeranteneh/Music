@@ -1,4 +1,4 @@
-const chalk = require('chalk');
+import chalk from 'chalk';
 
 /**
  * FIFO (First-In-First-Out) Cache
@@ -15,32 +15,38 @@ class FifoCache {
 
     get(key) {
         if (this.cache.has(key)) {
-            console.log(chalk.green(`[FIFO HIT]`) + ` Key: ${chalk.cyan(key)}`);
+            console.log(`${chalk.bgGreen.black(' HIT ')} [FIFO] Key: ${chalk.cyan(key)}`);
             return this.cache.get(key);
         }
-        console.log(chalk.yellow(`[FIFO MISS]`) + ` Key: ${chalk.cyan(key)}`);
+        console.log(`${chalk.bgYellow.black(' MISS ')} [FIFO] Key: ${chalk.cyan(key)}`);
         return null;
     }
 
     put(key, value) {
         if (this.cache.has(key)) {
-            // Update value but keep original insertion order
             this.cache.set(key, value);
-            console.log(chalk.blue(`[FIFO UPDATE]`) + ` Key: ${chalk.cyan(key)} updated. Order unchanged.`);
+            console.log(`${chalk.bgBlue.white(' UPDATE ')} [FIFO] Key: ${chalk.cyan(key)} updated. Order unchanged.`);
             return;
         }
 
-        if (this.cache.size >= this.capacity) {
-            // Evict the oldest (first in queue)
+        if (this.cache.size >= this.capacity && this.capacity > 0) {
             const oldestKey = this.queue.shift();
-            this.cache.delete(oldestKey);
-            console.log(chalk.red(`[FIFO EVICTION]`) + ` Evicted: ${chalk.cyan(oldestKey)} (Reason: Capacity reached, oldest inserted)`);
+            if (oldestKey) {
+                this.cache.delete(oldestKey);
+                console.log(`${chalk.bgRed.white(' EVICT ')} [FIFO] Key: ${chalk.cyan(oldestKey)} (Reason: Oldest)`);
+            }
         }
 
         this.cache.set(key, value);
         this.queue.push(key);
-        console.log(chalk.magenta(`[FIFO INSERT]`) + ` Key: ${chalk.cyan(key)} cached.`);
+        console.log(`${chalk.bgMagenta.white(' PUT ')} [FIFO] Key: ${chalk.cyan(key)}`);
+    }
+
+    clear() {
+        this.cache.clear();
+        this.queue = [];
+        console.log(chalk.bgRed.white.bold(' CACHE CLEARED ') + ' [FIFO]');
     }
 }
 
-module.exports = FifoCache;
+export default FifoCache;

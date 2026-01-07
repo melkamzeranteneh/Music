@@ -1,12 +1,16 @@
-const express = require('express');
-const cors = require('cors');
-const { createClient } = require('redis');
-const chalk = require('chalk');
-const path = require('path');
-const FifoCache = require('./cache/FifoCache');
-const LruCache = require('./cache/LruCache');
-const LfuCache = require('./cache/LfuCache');
-const JsonDatabase = require('./db/JsonDatabase');
+import express from 'express';
+import cors from 'cors';
+import chalk from 'chalk';
+import path from 'path';
+import FifoCache from './cache/FifoCache.js';
+import LruCache from './cache/LruCache.js';
+import LfuCache from './cache/LfuCache.js';
+import JsonDatabase from './db/JsonDatabase.js';
+
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
@@ -19,52 +23,18 @@ async function initDb() {
         await db.init();
         const music = await db.find('music');
         console.log(`[SYSTEM] Database initialized. Music count: ${music ? music.length : 0}`);
-
-        if (!music || music.length === 0) {
-            console.log('[SYSTEM] Migrating music data to JSON database...');
-            const originalMusicPath = path.join(__dirname, '..', '..', 'frontend', 'src', 'data', 'music.json');
-            console.log(`[SYSTEM] Reading from: ${originalMusicPath}`);
-
-            const fs = require('fs').promises;
-            const content = await fs.readFile(originalMusicPath, 'utf-8');
-            const originalMusic = JSON.parse(content);
-
-            if (Array.isArray(originalMusic)) {
-                console.log(`[SYSTEM] Migrating ${originalMusic.length} tracks.`);
-                for (const item of originalMusic) {
-                    await db.insert('music', item);
-                }
-                console.log('[SYSTEM] Migration complete.');
-            } else {
-                console.error('[SYSTEM] Original music data is not an array.');
-            }
-        }
     } catch (err) {
         console.error('[SYSTEM] Database initialization failed:', err);
     }
 }
 initDb();
 
-// Redis Client for Rate Limiting
-const redisClient = createClient();
-redisClient.on('error', (err) => { }); // Silent error for missing redis
-
-let redisAvailable = false;
-const memoryRateLimit = new Map(); // Fallback storage
-
-async function initRedis() {
-    try {
-        await redisClient.connect();
-        redisAvailable = true;
-        console.log('Connected to Redis');
-    } catch (err) {
-        console.warn('Redis unavailable. Using in-memory rate limiting fallback.');
-    }
-}
-initRedis();
+// Rate Limiter (Redis confined to this module)
+import { rateLimiter, initRateLimiter } from './rateLimiter.js';
+initRateLimiter();
 
 // Cache Config
-const CAPACITY = 10;
+const CAPACITY = 5;
 const caches = {
     FIFO: new FifoCache(CAPACITY),
     LRU: new LruCache(CAPACITY),
@@ -73,34 +43,7 @@ const caches = {
 let currentPolicy = 'LRU';
 
 // Rate Limiter Middleware
-const rateLimiter = async (req, res, next) => {
-    const userId = req.headers['x-user-id'] || 'default-user';
-    const minute = new Date().getMinutes();
-    const key = `${userId}:${minute}`;
-
-    let count = 0;
-    if (redisAvailable) {
-        try {
-            count = await redisClient.incr(`rate:${key}`);
-            if (count === 1) await redisClient.expire(`rate:${key}`, 60);
-        } catch (err) {
-            redisAvailable = false;
-        }
-    }
-
-    if (!redisAvailable) {
-        count = (memoryRateLimit.get(key) || 0) + 1;
-        memoryRateLimit.set(key, count);
-        // Basic cleanup for memory fallback
-        setTimeout(() => memoryRateLimit.delete(key), 60000);
-    }
-
-    if (count > 10) {
-        console.log(`[RATE LIMIT] Blocked userId: ${userId} (${count} req/min)`);
-        return res.status(429).json({ error: 'Too many requests. Limit: 10/min' });
-    }
-    next();
-};
+// rateLimiter middleware is imported from rateLimiter.js
 
 // Endpoints
 app.get('/music', async (req, res) => {
@@ -120,29 +63,84 @@ app.post('/policy', (req, res) => {
     res.status(400).json({ error: 'Invalid policy' });
 });
 
-app.post('/play', rateLimiter, async (req, res) => {
+app.post('/play/:trackId', rateLimiter, async (req, res) => {
+    const { trackId } = req.params;
     const { artist, track, genre } = req.body;
-    const key = `${artist}|${track}|${genre}`;
-    const cache = caches[currentPolicy];
+    const key = trackId; // Use trackId from URL as the cache key
+    const selectedCache = caches[currentPolicy];
 
-    const hit = cache.get(key);
-    if (hit) {
-        return res.json({ status: 'HIT', data: hit, latency: 0 });
+    // Prepare a standard payload for caches on miss
+    const musicData = { artist, track, genre, timestamp: Date.now() };
+
+    // First, treat this play as an access event across all caches
+    Object.entries(caches).forEach(([name, c]) => {
+        const existing = c.get(key);
+        if (!existing) {
+            c.put(key, musicData);
+        }
+    });
+
+    // Determine hit/miss for the currently selected cache
+    const selectedHit = selectedCache.get(key);
+    if (selectedHit) {
+        return res.json({ status: 'HIT', data: selectedHit, latency: 0 });
     }
 
-    const delay = Math.floor(Math.random() * 401) + 800;
+    // Simulate processing latency for selected cache miss
+    const delay = Math.floor(Math.random() * 401) + 800; // 800ms - 1200ms
     await new Promise(resolve => setTimeout(resolve, delay));
 
-    const musicData = { artist, track, genre, timestamp: Date.now() };
-    cache.put(key, musicData);
-
+    selectedCache.put(key, musicData);
     res.json({ status: 'MISS', data: musicData, latency: delay });
 });
 
-const PORT = 3002;
-app.listen(PORT, () => {
+app.get('/cache/state', (req, res) => {
+    const cache = caches[currentPolicy];
+    let content = [];
+    let orderLabel = '';
+
+    if (cache.cache instanceof Map) { // For LRU and FIFO
+        const values = Array.from(cache.cache.values());
+        if (currentPolicy === 'LRU') {
+            // Map iterates oldest -> newest; show most recent first
+            content = values.slice().reverse();
+            orderLabel = 'Most Recent → ... → Least Recent';
+        } else {
+            // FIFO insertion order: first in -> last in
+            content = values;
+            orderLabel = 'First In → ... → Last In';
+        }
+    } else if (cache.values instanceof Map) { // For LFU
+        // Sort by frequency desc; ties keep insertion order via lists Set
+        const keys = Array.from(cache.values.keys());
+        keys.sort((a, b) => (cache.counts.get(b) || 0) - (cache.counts.get(a) || 0));
+        content = keys.map(k => cache.values.get(k));
+        orderLabel = 'Highest Freq → ... → Lowest Freq';
+    }
+
+    res.json({
+        policy: currentPolicy,
+        capacity: cache.capacity,
+        size: content.length,
+        orderLabel,
+        content
+    });
+});
+
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3002;
+const server = app.listen(PORT, () => {
     console.log(`============================================`);
     console.log(`   Music Cache Backend Running on :${PORT}`);
     console.log(`   Policy: ${currentPolicy}`);
     console.log(`============================================`);
+});
+
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is in use. Set a different PORT env var, e.g., 3003.`);
+        console.error(`Example: set PORT then restart:`);
+        console.error(`  PowerShell: $env:PORT = "3003"; npm start`);
+        process.exit(1);
+    }
+    throw err;
 });

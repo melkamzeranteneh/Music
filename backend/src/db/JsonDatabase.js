@@ -1,5 +1,5 @@
-const fs = require('fs').promises;
-const path = require('path');
+import fs from 'fs/promises';
+import path from 'path';
 
 /**
  * JsonDatabase
@@ -131,4 +131,4 @@ class JsonDatabase {
     }
 }
 
-module.exports = JsonDatabase;
+export default JsonDatabase;

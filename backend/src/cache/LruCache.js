@@ -1,4 +1,4 @@
-const chalk = require('chalk');
+import chalk from 'chalk';
 
 /**
  * LRU (Least Recently Used) Cache
@@ -14,33 +14,35 @@ class LruCache {
 
     get(key) {
         if (!this.cache.has(key)) {
-            console.log(chalk.yellow(`[LRU MISS]`) + ` Key: ${chalk.cyan(key)}`);
+            console.log(`${chalk.bgYellow.black(' MISS ')} [LRU] Key: ${chalk.cyan(key)}`);
             return null;
         }
 
-        // Refresh recency: delete and re-insert
         const value = this.cache.get(key);
         this.cache.delete(key);
         this.cache.set(key, value);
 
-        console.log(chalk.green(`[LRU HIT]`) + ` Key: ${chalk.cyan(key)} (Recency updated)`);
+        console.log(`${chalk.bgGreen.black(' HIT ')} [LRU] Key: ${chalk.cyan(key)} (Recency updated)`);
         return value;
     }
 
     put(key, value) {
         if (this.cache.has(key)) {
-            // Update value and refresh recency
             this.cache.delete(key);
-        } else if (this.cache.size >= this.capacity) {
-            // Evict least recently used (first key in insertion order)
+        } else if (this.cache.size >= this.capacity && this.capacity > 0) {
             const lruKey = this.cache.keys().next().value;
             this.cache.delete(lruKey);
-            console.log(chalk.red(`[LRU EVICTION]`) + ` Evicted: ${chalk.cyan(lruKey)} (Reason: Least recently accessed)`);
+            console.log(`${chalk.bgRed.white(' EVICT ')} [LRU] Key: ${chalk.cyan(lruKey)} (Reason: Least Recently Used)`);
         }
 
         this.cache.set(key, value);
-        console.log(chalk.magenta(`[LRU INSERT/UPDATE]`) + ` Key: ${chalk.cyan(key)} cached.`);
+        console.log(`${chalk.bgMagenta.white(' PUT ')} [LRU] Key: ${chalk.cyan(key)}`);
+    }
+
+    clear() {
+        this.cache.clear();
+        console.log(chalk.bgRed.white.bold(' CACHE CLEARED ') + ' [LRU]');
     }
 }
 
-module.exports = LruCache;
+export default LruCache;
