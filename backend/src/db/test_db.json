@@ -1,0 +1,11 @@
+{
+  "users": [
+    {
+      "id": "mk3dd5mbru3ya",
+      "name": "Bob",
+      "role": "moderator",
+      "createdAt": "2026-01-07T01:58:24.179Z",
+      "updatedAt": "2026-01-07T01:58:24.185Z"
+    }
+  ]
+}
