@@ -1,84 +1,68 @@
 # Music Caching Project
 
-This project is an exploration of different caching algorithms. It includes implementations of FIFO, LFU, and LRU caching strategies.
+A small full-stack demo that compares FIFO, LFU, and LRU caching for serving a music library. The stack is:
+- Backend: Node.js + Express + Redis cache + JSON file DB
+- Frontend: React (Vite) + Tailwind
 
-The project is divided into two main parts:
-- A `backend` server that serves music data and uses different caching algorithms.
-- A `frontend` application that displays the music data.
+## Quick start (Windows-friendly)
 
-## Backend
+1) Install dependencies
+```powershell
+# from project root
+npm install
+cd backend; npm install; cd ..
+cd frontend; npm install; cd ..
+```
 
-The backend is a Node.js application that uses Express. It has a simple JSON database and different caching implementations.
+2) Start Redis with Docker (recommended)
+```powershell
+docker compose up -d redis
+```
+Redis listens on localhost:6379. Ensure Docker Desktop is running.
 
-## Frontend
+3) Run the backend (port 3000)
+```powershell
+cd backend
+npm start
+```
 
-The frontend is a React application built with Vite. It fetches music data from the backend and displays it.
+4) Run the frontend (port 5173)
+```powershell
+cd frontend
+npm run dev
+```
 
-## Running the project
+## How it works
+- Cache strategies live in [backend/src/cache](backend/src/cache) (`FifoCache.js`, `LfuCache.js`, `LruCache.js`).
+- Music data comes from a lightweight JSON store in [backend/src/db/music_db.json](backend/src/db/music_db.json).
+- The frontend queries the backend API and shows the current cache state so you can see hits/misses per algorithm.
 
-1.  Install dependencies for both the `backend` and `frontend`:
-    ```bash
-    npm install
-    cd backend
-    npm install
-    cd ../frontend
-    npm install
-    ```
-2.  Start Redis with Docker (recommended):
-    - Ensure Docker Desktop is running on Windows.
-    - From the project root, bring up Redis:
-    ```powershell
-    docker compose up -d redis
-    ```
-    Redis will be available on `localhost:6379`.
+## Configuration
+- `REDIS_URL` (optional): defaults to `redis://127.0.0.1:6379`.
+- To set in PowerShell for one session:
+```powershell
+$env:REDIS_URL = "redis://127.0.0.1:6379"
+```
 
-3.  (Optional) Configure a custom Redis URL:
-    - The backend reads `REDIS_URL` if set; defaults to `redis://127.0.0.1:6379`.
-    - Example for PowerShell:
-    ```powershell
-    $env:REDIS_URL = "redis://127.0.0.1:6379"
-    ```
-
-4.  Run the backend server:
-    ```bash
-    cd backend
-    npm start
-    ```
-5.  Run the frontend application:
-    ```bash
-    cd frontend
-    npm run dev
-    ```
+## Useful scripts
+- Backend: `npm start` (dev server)
+- Frontend: `npm run dev` (Vite dev server)
+- Docker: `docker compose up -d redis` / `docker compose down`
 
 ## Troubleshooting (Windows)
+- Docker not running: start Docker Desktop; if needed run elevated PowerShell `Start-Service com.docker.service`, then `docker version`.
+- WSL 2 missing (for Linux containers):
+```powershell
+dism /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+dism /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+wsl --install
+wsl --set-default-version 2
+wsl --update
+```
+Reboot after enabling features.
 
-- Docker engine not running:
-    - Launch Docker Desktop and wait for "Engine running".
-    - Run an elevated PowerShell (Run as Administrator) and start the service:
-        ```powershell
-        Start-Service com.docker.service
-        ```
-    - Verify:
-        ```powershell
-        docker version
-        docker info
-        ```
-
-- WSL 2 not set up (required for Linux containers):
-    - Enable features and install WSL:
-        ```powershell
-        dism /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
-        dism /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
-        wsl --install
-        wsl --set-default-version 2
-        wsl --update
-        ```
-    - Reboot Windows after enabling features.
-
-- After Docker is running, start Redis:
-    ```powershell
-    cd D:\Icog_Lab_internship\Training\Music
-    docker compose up -d redis
-    docker compose ps
-    docker exec -it music-redis redis-cli ping
-    ```
+- Redis health check:
+```powershell
+docker compose ps
+docker exec -it music-redis redis-cli ping
+```
