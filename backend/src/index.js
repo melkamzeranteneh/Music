@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import chalk from 'chalk';
+import { createClient } from 'redis';
+import rateLimiterLib from 'redis-rate-limiter';
 import path from 'path';
 import FifoCache from './cache/FifoCache.js';
 import LruCache from './cache/LruCache.js';
@@ -29,9 +31,69 @@ async function initDb() {
 }
 initDb();
 
-// Rate Limiter (Redis confined to this module)
-import { rateLimiter, initRateLimiter } from './rateLimiter.js';
+// Inline Redis Rate Limiter (fixed window 15/min)
+let redisAvailable = false;
+let errorLogged = false;
+const RATE_LIMIT_MAX = 15;
+const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+const redisClient = createClient({
+    url: REDIS_URL,
+    legacyMode: true,
+    disableOfflineQueue: true,
+    socket: {
+        reconnectStrategy: () => new Error('Redis reconnect disabled (rate limiting degraded)')
+    }
+});
+
+let limitFn = null;
+
+redisClient.on('error', () => {
+    if (!errorLogged) {
+        console.warn('[RATE LIMIT] Redis connection error. Running without rate limiting.');
+        errorLogged = true;
+    }
+    redisAvailable = false;
+});
+
+async function initRateLimiter() {
+    try {
+        await redisClient.connect();
+        limitFn = rateLimiterLib.create({
+            redis: redisClient,
+            key: (req) => req.headers['x-user-id'] || 'default-user',
+            rate: `${RATE_LIMIT_MAX}/minute`
+        });
+        redisAvailable = true;
+        console.log('Connected to Redis for rate limiting.');
+    } catch (err) {
+        if (!errorLogged) {
+            console.warn('WARNING: Could not connect to Redis. Running without rate limiting.');
+            errorLogged = true;
+        }
+        redisAvailable = false;
+        // Continue in degraded mode
+    }
+}
 initRateLimiter();
+
+const rateLimiter = (req, res, next) => {
+    if (!redisAvailable || !limitFn) return next();
+    try {
+        limitFn(req, (err, rate) => {
+            if (err) {
+                console.warn('[RATE LIMIT] Not available; proceeding without limit.');
+                return next();
+            }
+            if (rate && rate.over) {
+                return res.status(429).json({ error: `Too many requests. Limit: ${RATE_LIMIT_MAX}/min` });
+            }
+            next();
+        });
+    } catch {
+        console.warn('[RATE LIMIT] Error during limiting; proceeding without limit.');
+        next();
+    }
+};
 
 // Cache Config
 const CAPACITY = 5;
@@ -43,7 +105,7 @@ const caches = {
 let currentPolicy = 'LRU';
 
 // Rate Limiter Middleware
-// rateLimiter middleware is imported from rateLimiter.js
+// `rateLimiter` is defined above
 
 // Endpoints
 app.get('/music', async (req, res) => {
